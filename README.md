@@ -69,3 +69,8 @@ Settings are stored locally with `browser.storage.local`. The extension does not
 
 Before rejecting all cookies, the extension opens preference panels when available, expands accordion sections, and disables legitimate interest toggles.
 
+
+## Troubleshooting
+
+Reload the extension in your browser after code changes. In dev mode, reload from chrome://extensions if settings or background scripts stop responding.
+
