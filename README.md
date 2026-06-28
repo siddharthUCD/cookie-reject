@@ -64,3 +64,8 @@ utils/
 ## Privacy
 
 Settings are stored locally with `browser.storage.local`. The extension does not collect or send browsing data.
+
+## Preferences flow
+
+Before rejecting all cookies, the extension opens preference panels when available, expands accordion sections, and disables legitimate interest toggles.
+
