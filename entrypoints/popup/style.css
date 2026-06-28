@@ -1,0 +1,105 @@
+:root {
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  line-height: 1.5;
+  color: #1a1a1a;
+  background: #ffffff;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+}
+
+.popup {
+  padding: 1rem 1.1rem 1.1rem;
+}
+
+.popup__header h1 {
+  margin: 0 0 0.25rem;
+  font-size: 1.125rem;
+}
+
+.popup__header p {
+  margin: 0 0 1rem;
+  color: #555;
+  font-size: 0.8125rem;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  margin-bottom: 1rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.625rem;
+  cursor: pointer;
+}
+
+.toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle__slider {
+  position: relative;
+  width: 2.5rem;
+  height: 1.375rem;
+  background: #d1d5db;
+  border-radius: 999px;
+  transition: background 0.2s ease;
+  flex-shrink: 0;
+}
+
+.toggle__slider::after {
+  content: '';
+  position: absolute;
+  top: 0.125rem;
+  left: 0.125rem;
+  width: 1.125rem;
+  height: 1.125rem;
+  background: #ffffff;
+  border-radius: 50%;
+  transition: transform 0.2s ease;
+}
+
+.toggle input:checked + .toggle__slider {
+  background: #059669;
+}
+
+.toggle input:checked + .toggle__slider::after {
+  transform: translateX(1.125rem);
+}
+
+.toggle__label {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.status {
+  margin: 0 0 1rem;
+  min-height: 1rem;
+  color: #b45309;
+  font-size: 0.75rem;
+}
+
+.info h2 {
+  margin: 0 0 0.5rem;
+  font-size: 0.8125rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6b7280;
+}
+
+.info ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: #374151;
+  font-size: 0.8125rem;
+}
+
+.info li + li {
+  margin-top: 0.35rem;
+}
