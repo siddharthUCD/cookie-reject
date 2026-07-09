@@ -2,6 +2,8 @@ export const REJECT_ALL_PATTERNS: RegExp[] = [
   // English
   /^reject all$/i,
   /^decline all$/i,
+  /^decline$/i,
+  /^reject$/i,
   /^decline all cookies$/i,
   /^decline all optional cookies$/i,
   /^decline non-essential cookies$/i,
@@ -70,6 +72,7 @@ export const REJECT_ALL_PATTERNS: RegExp[] = [
 
 export const REJECT_PARTIAL_PATTERNS: RegExp[] = [
   /\bdecline all\b/i,
+  /\bdecline\b/i,
   /\breject all\b/i,
   /\brefuse all\b/i,
   /\bdeny all\b/i,

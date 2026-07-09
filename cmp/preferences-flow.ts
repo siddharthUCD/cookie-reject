@@ -342,6 +342,14 @@ export async function processPreferencesBeforeReject(
 
   const consentRoot = findConsentRoot(root) ?? root;
 
+  // Prefer direct decline on the banner before opening "Manage cookies" / settings.
+  if (!isPreferencesPanelOpen(root) && !hasAccordionMenus(consentRoot)) {
+    if (clickRejectAll(consentRoot)) {
+      await wait(300);
+      return { handled: true, action: 'banner-direct-reject' };
+    }
+  }
+
   if (!isPreferencesPanelOpen(root)) {
     const opened = await openPreferencesPanel(root);
     if (opened) {
