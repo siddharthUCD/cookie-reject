@@ -1,3 +1,63 @@
+export const REJECT_NON_ESSENTIAL_PATTERNS: RegExp[] = [
+  /^decline non-essential cookies$/i,
+  /^decline non essential cookies$/i,
+  /^reject optional cookies$/i,
+  /^decline optional cookies$/i,
+  /^only (use )?essential cookies$/i,
+  /^essential cookies only$/i,
+  /^only necessary cookies$/i,
+  /^necessary cookies only$/i,
+  /^use necessary cookies only$/i,
+  /^reject essential cookies$/i,
+  /^decline essential cookies$/i,
+  /^reject all$/i,
+  /^decline all$/i,
+  /^reject all cookies$/i,
+  /^decline all cookies$/i,
+  /^refuse all$/i,
+  /^deny all$/i,
+  /^tout refuser$/i,
+  /^refuser tout$/i,
+  /^alle ablehnen$/i,
+  /^rechazar todo$/i,
+  /^rifiuta tutto$/i,
+  /^alles weigeren$/i,
+  /^rejeitar tudo$/i,
+];
+
+export const REJECT_BANNER_PATTERNS: RegExp[] = [
+  /^decline$/i,
+  /^reject$/i,
+  /^decline all$/i,
+  /^reject all$/i,
+  /^decline all cookies$/i,
+  /^reject all cookies$/i,
+  /^refuse all$/i,
+  /^deny all$/i,
+  /^ablehnen$/i,
+  /^continue without accepting$/i,
+  /^continue without consent$/i,
+];
+
+export const NESTED_PREFERENCE_PATTERNS: RegExp[] = [
+  /^vendor preferences$/i,
+  /^legitimate interest$/i,
+  /^vendors?$/i,
+  /^purposes?$/i,
+  /^view (all )?vendors$/i,
+  /^view (all )?purposes$/i,
+  /^show (more|details)$/i,
+  /^more information$/i,
+  /^partner(s| list)?$/i,
+  /^cookie settings$/i,
+  /^manage cookies$/i,
+  /^manage preferences$/i,
+  /^customize$/i,
+  /^customise$/i,
+  /^preferences$/i,
+  /^settings$/i,
+];
+
 export const REJECT_ALL_PATTERNS: RegExp[] = [
   // English
   /^reject all$/i,
@@ -83,6 +143,7 @@ export const REJECT_PARTIAL_PATTERNS: RegExp[] = [
 ];
 
 export const PREFERENCES_BUTTON_PATTERNS: RegExp[] = [
+  /^manage options$/i,
   /^cookie settings$/i,
   /^cookies settings$/i,
   /^manage cookies$/i,
@@ -118,6 +179,7 @@ export const LEGITIMATE_INTEREST_CONTEXT_PATTERN =
   /legitimate interest|licit[i]mate interest|interest l[eé]gitime|berechtigtes interesse|inter[eê]s leg[ií]timo|interesse legittimo|gerechtvaardigd belang|legitima finalidad|interes legitimo/i;
 
 export const SAVE_CHOICES_PATTERNS: RegExp[] = [
+  /^confirm choices$/i,
   /^save (my )?choices$/i,
   /^save preferences$/i,
   /^confirm (my )?choices$/i,
