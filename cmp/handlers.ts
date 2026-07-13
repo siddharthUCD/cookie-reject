@@ -2,11 +2,12 @@ import {
   tryOneTrustApi,
   tryOneTrustBannerReject,
 } from '@/cmp/onetrust';
+import { runOrderedConsentFlow } from '@/cmp/consent-flow';
+import { tryGoogleFundingChoices, isGfcFlowActive } from '@/cmp/google-funding-choices';
 import {
   clickSaveChoices,
-  disableLegitimateInterestToggles,
-  expandConsentAccordions,
-  processPreferencesBeforeReject,
+  rejectBanner,
+  rejectInScope,
 } from '@/cmp/preferences-flow';
 import type { CmpHandler, HandlerResult } from '@/cmp/types';
 import {
@@ -41,8 +42,17 @@ function clickSelector(
 }
 
 const cmpHandlers: CmpHandler[] = [
-  // Open preferences, expand accordions, disable LI, then reject all
-  (root) => processPreferencesBeforeReject(root),
+  // Google Funding Choices: manage options → LI toggles → vendor prefs → confirm
+  (root) => tryGoogleFundingChoices(root),
+
+  // Reject-all shortcut for banners that expose it directly
+  (root) => {
+    if (isGfcFlowActive()) {
+      return { handled: true, action: 'gfc-flow-active' };
+    }
+
+    return runOrderedConsentFlow(root);
+  },
 
   // OneTrust quick reject (when no preference panel to process)
   () => tryOneTrustApi(),
@@ -228,16 +238,20 @@ const cmpHandlers: CmpHandler[] = [
     return { handled: false };
   },
 
-  // Generic fallback: expand accordions, clear LI, reject all
+  // Generic fallback: reject main banner only (LI/non-essential handled by ordered flow)
   async (root) => {
+    if (rejectBanner(root) || rejectInScope(root, 'any')) {
+      await wait(350);
+      await clickSaveChoices(root);
+      return { handled: true, action: 'generic-banner-reject' };
+    }
+
     const rejectButton = findRejectButton(root);
     if (!rejectButton || !clickElement(rejectButton)) {
       return { handled: false };
     }
 
     await wait(350);
-    await expandConsentAccordions(root);
-    await disableLegitimateInterestToggles(root);
     await clickSaveChoices(root);
 
     return { handled: true, action: 'generic-reject-all' };
