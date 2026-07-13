@@ -12,8 +12,10 @@ import {
 import {
   LEGITIMATE_INTEREST_CONTEXT_PATTERN,
   LEGITIMATE_INTEREST_PATTERNS,
+  NESTED_PREFERENCE_PATTERNS,
   PREFERENCES_BUTTON_PATTERNS,
-  REJECT_ALL_PATTERNS,
+  REJECT_BANNER_PATTERNS,
+  REJECT_NON_ESSENTIAL_PATTERNS,
   REJECT_PARTIAL_PATTERNS,
   SAVE_CHOICES_PATTERNS,
 } from '@/utils/patterns';
@@ -30,7 +32,19 @@ const CONSENT_ROOT_SELECTORS = [
   '[class*="cookie-banner" i]',
   '[class*="consent-banner" i]',
   '[class*="cookie-notice" i]',
+  '[class*="fc-consent" i]',
+  'iframe[src*="fundingchoices" i]',
   '[aria-modal="true"]',
+];
+
+const BANNER_SELECTORS = [
+  '#onetrust-banner-sdk',
+  '#didomi-notice',
+  '.qc-cmp2-summary',
+  '.osano-cm-dialog',
+  '[class*="cookie-banner" i]',
+  '[class*="consent-banner" i]',
+  '[class*="cookie-notice" i]',
 ];
 
 const PREFERENCES_PANEL_SELECTORS = [
@@ -41,6 +55,7 @@ const PREFERENCES_PANEL_SELECTORS = [
   '[class*="preference-center" i]',
   '[class*="preferences-modal" i]',
   '[class*="cookie-preferences" i]',
+  '[class*="data-preferences" i]',
 ];
 
 const PREFERENCES_BUTTON_SELECTORS = [
@@ -70,42 +85,124 @@ const REJECT_IN_PANEL_SELECTORS = [
   'button[data-testid="uc-deny-all-button"]',
 ];
 
-function findConsentRoot(root: Document | Element | ShadowRoot): Element | null {
+const REJECT_ON_BANNER_SELECTORS = [
+  '#onetrust-reject-all-handler',
+  '#onetrust-banner-sdk #onetrust-reject-all-handler',
+  '#didomi-notice-disagree-button',
+  'button[data-testid="notice-disagree-button"]',
+  '#CybotCookiebotDialogBodyButtonDecline',
+  '#uc-btn-deny-banner',
+  '.cky-btn-reject',
+  '.cc-deny',
+  '.osano-cm-button--type_deny',
+  '[data-action="decline"]',
+  '[data-action="reject-all"]',
+  '[data-action="reject_all"]',
+  '[data-action="decline-all"]',
+  '[data-action="decline_all"]',
+];
+
+export function findConsentRoot(root: Document | Element | ShadowRoot): Element | null {
   return findFirstVisible(root, CONSENT_ROOT_SELECTORS, { lenient: true });
 }
 
-function isPreferencesPanelOpen(root: Document | Element | ShadowRoot): boolean {
+export function isPreferencesPanelOpen(root: Document | Element | ShadowRoot): boolean {
   return !!findFirstVisible(root, PREFERENCES_PANEL_SELECTORS, { lenient: true });
 }
 
-function hasPreferenceEntryPoint(root: Document | Element | ShadowRoot): boolean {
-  if (findFirstVisible(root, PREFERENCES_BUTTON_SELECTORS, { lenient: true })) {
+function isInBannerScope(element: Element): boolean {
+  if (element.closest(BANNER_SELECTORS.join(', '))) {
     return true;
   }
 
-  return !!findByTextPatterns(root, PREFERENCES_BUTTON_PATTERNS, undefined, {
-    lenient: true,
-  });
+  const consentRoot = findConsentRoot(document);
+  if (!consentRoot) {
+    return isInConsentUi(element);
+  }
+
+  return consentRoot.contains(element) && !isInPanelScope(element);
 }
 
-function hasAccordionMenus(root: Document | Element | ShadowRoot): boolean {
-  const accordionSelectors = [
-    '.ot-acc-hdr',
-    '.ot-acc-grp-hdr1',
-    '[aria-expanded="false"]',
-    'details:not([open])',
-    '.accordion-button.collapsed',
-    '[class*="accordion" i][class*="collapsed" i]',
-  ];
+function isInPanelScope(element: Element): boolean {
+  return !!element.closest(PREFERENCES_PANEL_SELECTORS.join(', '));
+}
 
-  return accordionSelectors.some((selector) =>
-    queryAllIncludingShadow(root, selector).some(
-      (element) => isInConsentUi(element) && isVisible(element, { lenient: true }),
-    ),
+function matchesScope(
+  element: Element,
+  scope: 'panel' | 'banner' | 'any',
+): boolean {
+  if (scope === 'any') {
+    return isInConsentUi(element) || !!findConsentRoot(document)?.contains(element);
+  }
+
+  if (scope === 'panel') {
+    return isInPanelScope(element);
+  }
+
+  return isInBannerScope(element);
+}
+
+export function hasConsentUi(root: Document | Element | ShadowRoot): boolean {
+  if (findConsentRoot(root)) {
+    return true;
+  }
+
+  return !!findByTextPatterns(
+    root,
+    [...REJECT_BANNER_PATTERNS, ...REJECT_NON_ESSENTIAL_PATTERNS],
+    undefined,
+    { lenient: true },
   );
 }
 
-async function tryOpenOneTrustPreferenceCenter(): Promise<boolean> {
+export async function openPreferencesPanel(
+  root: Document | Element | ShadowRoot,
+): Promise<boolean> {
+  if (isPreferencesPanelOpen(root)) {
+    return true;
+  }
+
+  for (const selector of PREFERENCES_BUTTON_SELECTORS) {
+    for (const element of queryAllIncludingShadow(root, selector)) {
+      if (!isVisible(element, { lenient: true }) || !isSafePreferenceTrigger(element)) {
+        continue;
+      }
+
+      if (clickElement(element)) {
+        return true;
+      }
+    }
+  }
+
+  const textButton = findByTextPatterns(root, PREFERENCES_BUTTON_PATTERNS, undefined, {
+    lenient: true,
+  });
+
+  if (textButton && isSafePreferenceTrigger(textButton) && clickElement(textButton)) {
+    return true;
+  }
+
+  return false;
+}
+
+function isSafePreferenceTrigger(element: Element): boolean {
+  if (element instanceof HTMLAnchorElement) {
+    const href = element.getAttribute('href')?.trim();
+    if (!href || href === '#') {
+      return true;
+    }
+
+    if (href.startsWith('javascript:')) {
+      return true;
+    }
+
+    return false;
+  }
+
+  return true;
+}
+
+export async function tryOpenOneTrustPreferenceCenter(): Promise<boolean> {
   const oneTrust = (window as Window & {
     OneTrust?: { ToggleInfoDisplay?: () => void };
   }).OneTrust;
@@ -127,46 +224,37 @@ async function tryOpenOneTrustPreferenceCenter(): Promise<boolean> {
   }
 }
 
-function shouldRunPreferencesFlow(root: Document | Element | ShadowRoot): boolean {
-  const consentRoot = findConsentRoot(root);
-  if (!consentRoot) {
-    return false;
-  }
+export async function openNestedPreferenceSections(
+  root: Document | Element | ShadowRoot,
+): Promise<number> {
+  let opened = 0;
 
-  if (
-    isPreferencesPanelOpen(root) ||
-    hasPreferenceEntryPoint(root) ||
-    hasAccordionMenus(root)
-  ) {
-    return true;
-  }
-
-  const oneTrustBanner = findFirstVisible(
+  for (const element of queryAllIncludingShadow(
     root,
-    ['#onetrust-banner-sdk', '#onetrust-consent-sdk'],
-    { lenient: true },
-  );
+    ['button', '[role="button"]', 'summary', '[aria-expanded="false"]'].join(', '),
+  )) {
+    if (!isInConsentUi(element) || !isVisible(element, { lenient: true })) {
+      continue;
+    }
 
-  return !!oneTrustBanner && typeof (window as Window & { OneTrust?: unknown }).OneTrust !== 'undefined';
+    if (!elementMatchesNestedPreference(element)) {
+      continue;
+    }
+
+    if (clickElement(element)) {
+      opened += 1;
+      await wait(250);
+    }
+  }
+
+  return opened;
 }
 
-async function openPreferencesPanel(
-  root: Document | Element | ShadowRoot,
-): Promise<boolean> {
-  if (isPreferencesPanelOpen(root)) {
-    return true;
-  }
-
-  const button = findFirstVisible(root, PREFERENCES_BUTTON_SELECTORS, { lenient: true });
-  if (button && clickElement(button)) {
-    return true;
-  }
-
-  const textButton = findByTextPatterns(root, PREFERENCES_BUTTON_PATTERNS, undefined, {
-    lenient: true,
-  });
-
-  return textButton ? clickElement(textButton) : false;
+function elementMatchesNestedPreference(element: Element): boolean {
+  const texts = getElementTextVariants(element);
+  return texts.some((text) =>
+    NESTED_PREFERENCE_PATTERNS.some((pattern) => pattern.test(text)),
+  );
 }
 
 function isAccordionContentHidden(header: Element): boolean {
@@ -189,7 +277,7 @@ function isAccordionContentHidden(header: Element): boolean {
 
 async function expandAllAccordions(
   root: Document | Element | ShadowRoot,
-  maxRounds = 10,
+  maxRounds = 2,
 ): Promise<number> {
   let totalExpanded = 0;
 
@@ -312,82 +400,110 @@ export async function clickSaveChoices(root: Document | Element | ShadowRoot): P
   return saveElement ? clickElement(saveElement) : false;
 }
 
-function clickRejectAll(root: Document | Element | ShadowRoot): boolean {
-  const rejectBySelector = findFirstVisible(root, REJECT_IN_PANEL_SELECTORS, {
-    lenient: true,
-  });
-  if (rejectBySelector && clickElement(rejectBySelector)) {
+function clickRejectBySelector(
+  root: Document | Element | ShadowRoot,
+  selectors: string[],
+  scope: 'panel' | 'banner' | 'any',
+): boolean {
+  for (const selector of selectors) {
+    for (const element of queryAllIncludingShadow(root, selector)) {
+      if (!isVisible(element, { lenient: true }) || !matchesScope(element, scope)) {
+        continue;
+      }
+
+      if (clickElement(element)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function clickRejectByText(
+  root: Document | Element | ShadowRoot,
+  patterns: RegExp[],
+  scope: 'panel' | 'banner' | 'any',
+): boolean {
+  const button = findByTextPatterns(root, patterns, undefined, { lenient: true });
+  if (!button || !matchesScope(button, scope)) {
+    return false;
+  }
+
+  return clickElement(button);
+}
+
+export function rejectAllIfVisible(root: Document | Element | ShadowRoot): boolean {
+  return (
+    rejectNonEssential(root, 'any') ||
+    rejectNonEssential(root, 'panel') ||
+    rejectBanner(root) ||
+    rejectInScope(root, 'any')
+  );
+}
+
+export function rejectNonEssential(
+  root: Document | Element | ShadowRoot,
+  scope: 'panel' | 'banner' | 'any' = 'any',
+): boolean {
+  if (clickRejectBySelector(root, REJECT_IN_PANEL_SELECTORS, scope)) {
     return true;
   }
 
-  const rejectByText = findByTextPatterns(
-    root,
-    [
-      ...REJECT_ALL_PATTERNS,
-      ...REJECT_PARTIAL_PATTERNS,
-    ],
-    undefined,
-    { lenient: true },
-  );
-
-  return rejectByText ? clickElement(rejectByText) : false;
+  return clickRejectByText(root, REJECT_NON_ESSENTIAL_PATTERNS, scope);
 }
 
-export async function processPreferencesBeforeReject(
-  root: Document | Element | ShadowRoot = document,
-): Promise<HandlerResult> {
-  if (!shouldRunPreferencesFlow(root)) {
-    return { handled: false };
+export function rejectBanner(
+  root: Document | Element | ShadowRoot,
+): boolean {
+  if (clickRejectBySelector(root, REJECT_ON_BANNER_SELECTORS, 'banner')) {
+    return true;
   }
 
-  const consentRoot = findConsentRoot(root) ?? root;
+  if (clickRejectByText(root, [...REJECT_BANNER_PATTERNS, ...REJECT_PARTIAL_PATTERNS], 'banner')) {
+    return true;
+  }
 
-  // Prefer direct decline on the banner before opening "Manage cookies" / settings.
-  if (!isPreferencesPanelOpen(root) && !hasAccordionMenus(consentRoot)) {
-    if (clickRejectAll(consentRoot)) {
-      await wait(300);
-      return { handled: true, action: 'banner-direct-reject' };
+  return clickRejectByText(root, [...REJECT_BANNER_PATTERNS, ...REJECT_PARTIAL_PATTERNS], 'any');
+}
+
+export function rejectInScope(
+  root: Document | Element | ShadowRoot,
+  scope: 'panel' | 'banner' | 'any',
+): boolean {
+  if (scope === 'panel' || scope === 'any') {
+    if (clickRejectBySelector(root, REJECT_IN_PANEL_SELECTORS, scope)) {
+      return true;
+    }
+
+    if (clickRejectByText(root, REJECT_NON_ESSENTIAL_PATTERNS, scope)) {
+      return true;
     }
   }
 
-  if (!isPreferencesPanelOpen(root)) {
-    const opened = await openPreferencesPanel(root);
-    if (opened) {
-      await wait(450);
-    } else {
-      await tryOpenOneTrustPreferenceCenter();
+  if (scope === 'banner' || scope === 'any') {
+    if (clickRejectBySelector(root, REJECT_ON_BANNER_SELECTORS, scope)) {
+      return true;
+    }
+
+    if (clickRejectByText(root, [...REJECT_BANNER_PATTERNS, ...REJECT_PARTIAL_PATTERNS], scope)) {
+      return true;
     }
   }
 
-  if (!isPreferencesPanelOpen(root) && !hasAccordionMenus(consentRoot)) {
-    return { handled: false };
-  }
-
-  const expanded = await expandAllAccordions(consentRoot);
-  if (expanded > 0) {
-    await wait(250);
-  }
-
-  const liDisabled = await disableLegitimateInterestToggles(consentRoot);
-
-  if (clickRejectAll(consentRoot)) {
-    await wait(300);
-    await clickSaveChoices(consentRoot);
-    return {
-      handled: true,
-      action: `preferences-reject-all${liDisabled > 0 ? '-li-cleared' : ''}`,
-    };
-  }
-
-  if (liDisabled > 0 && (await clickSaveChoices(consentRoot))) {
-    return { handled: true, action: 'preferences-li-disabled-save' };
-  }
-
-  return { handled: false };
+  return false;
 }
 
 export async function expandConsentAccordions(
   root: Document | Element | ShadowRoot,
 ): Promise<number> {
   return expandAllAccordions(root);
+}
+
+/** @deprecated Use runOrderedConsentFlow from consent-flow.ts */
+export async function processPreferencesBeforeReject(
+  root: Document | Element | ShadowRoot = document,
+): Promise<HandlerResult> {
+  const { runOrderedConsentFlow } = await import('@/cmp/consent-flow');
+  return runOrderedConsentFlow(root);
 }
