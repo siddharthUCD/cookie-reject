@@ -86,12 +86,23 @@ export function findClickTarget(element: Element): HTMLElement | null {
     return element;
   }
 
+  if (element instanceof HTMLLabelElement) {
+    return element;
+  }
+
   if (element.getAttribute('role') === 'button') {
     return element as HTMLElement;
   }
 
+  if (
+    element.getAttribute('role') === 'checkbox' ||
+    element.getAttribute('role') === 'switch'
+  ) {
+    return element as HTMLElement;
+  }
+
   const closest = element.closest(
-    'button, a, [role="button"], [tabindex="0"], label, [onclick]',
+    'button, a, [role="button"], [role="checkbox"], [role="switch"], [tabindex="0"], label, [onclick]',
   );
 
   return (closest as HTMLElement | null) ?? (element as HTMLElement);
