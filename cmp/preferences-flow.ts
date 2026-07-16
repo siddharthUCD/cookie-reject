@@ -32,8 +32,6 @@ const CONSENT_ROOT_SELECTORS = [
   '[class*="cookie-banner" i]',
   '[class*="consent-banner" i]',
   '[class*="cookie-notice" i]',
-  '[class*="fc-consent" i]',
-  'iframe[src*="fundingchoices" i]',
   '[aria-modal="true"]',
 ];
 

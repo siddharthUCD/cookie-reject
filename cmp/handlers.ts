@@ -42,10 +42,11 @@ function clickSelector(
 }
 
 const cmpHandlers: CmpHandler[] = [
-  // Google Funding Choices: manage options → LI toggles → vendor prefs → confirm
+  // Google Funding Choices only (bosshunting-style). Isolated submodule —
+  // when active, blocks the generic ordered consent flow below.
   (root) => tryGoogleFundingChoices(root),
 
-  // Reject-all shortcut for banners that expose it directly
+  // Generic reject / preferences flow for all other CMPs
   (root) => {
     if (isGfcFlowActive()) {
       return { handled: true, action: 'gfc-flow-active' };
