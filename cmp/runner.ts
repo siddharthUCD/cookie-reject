@@ -1,9 +1,11 @@
 import { runHandlers } from '@/cmp/handlers';
+import { isGfcFlowActive } from '@/cmp/google-funding-choices';
 import { getSettings, SETTINGS_KEY, type Settings } from '@/utils/storage';
 import { getStorageApi } from '@/utils/extension-api';
 
 const SCAN_DEBOUNCE_MS = 250;
 const MAX_ATTEMPTS = 40;
+const MAX_ATTEMPTS_GFC = 150;
 const RETRY_INTERVAL_MS = 1000;
 
 let scanTimer: number | undefined;
@@ -23,7 +25,7 @@ async function scan(reason: string): Promise<void> {
     return;
   }
 
-  if (attempts >= MAX_ATTEMPTS) {
+  if (attempts >= (isGfcFlowActive() ? MAX_ATTEMPTS_GFC : MAX_ATTEMPTS)) {
     stopScanning();
     return;
   }
@@ -101,7 +103,7 @@ async function startScanning(reason: string): Promise<void> {
 
   if (!retryTimer) {
     retryTimer = window.setInterval(() => {
-      if (attempts >= MAX_ATTEMPTS) {
+      if (attempts >= (isGfcFlowActive() ? MAX_ATTEMPTS_GFC : MAX_ATTEMPTS)) {
         stopScanning();
         return;
       }
