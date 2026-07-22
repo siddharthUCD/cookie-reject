@@ -1,14 +1,24 @@
 import { LEGITIMATE_INTEREST_LABEL } from '@/cmp/google-funding-choices/constants';
-import { isVisible, queryAllIncludingShadow, wait } from '@/utils/dom';
+import { isVisible, queryAllIncludingShadow } from '@/utils/dom';
 
 let scrollContainer: HTMLElement | null = null;
 let scrollOffset = 0;
 let reachedBottom = false;
+let lastSeenScrollHeight = 0;
+let stableBottomHits = 0;
 
 export function resetScrollState(): void {
   scrollContainer = null;
   scrollOffset = 0;
   reachedBottom = false;
+  lastSeenScrollHeight = 0;
+  stableBottomHits = 0;
+}
+
+/** Allow further downward scrolling after LI toggles (Vendor prefs may sit below). */
+export function continueScrollingDown(): void {
+  reachedBottom = false;
+  stableBottomHits = 0;
 }
 
 function isScrollable(element: HTMLElement): boolean {
@@ -19,9 +29,13 @@ function isScrollable(element: HTMLElement): boolean {
   return allowsScroll && element.scrollHeight > element.clientHeight + 8;
 }
 
+/**
+ * Prefer the innermost scrollable panel that contains legitimate-interest
+ * controls. Outer dialogs often also report as scrollable but setting their
+ * scrollTop does not move the purpose list.
+ */
 function findBestScrollContainer(root: Document | Element | ShadowRoot): HTMLElement | null {
-  let best: HTMLElement | null = null;
-  let bestScore = 0;
+  const candidates: HTMLElement[] = [];
 
   for (const element of queryAllIncludingShadow(root, 'div, section, main, [role="dialog"]')) {
     if (!(element instanceof HTMLElement) || !isVisible(element, { lenient: true })) {
@@ -34,7 +48,34 @@ function findBestScrollContainer(root: Document | Element | ShadowRoot): HTMLEle
 
     const text = element.textContent ?? '';
     const liCount = (text.match(LEGITIMATE_INTEREST_LABEL) ?? []).length;
-    const score = liCount * 1000 + element.scrollHeight;
+    if (liCount === 0) {
+      continue;
+    }
+
+    candidates.push(element);
+  }
+
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  // Innermost first: a container that is not an ancestor of another candidate.
+  const inner = candidates.filter(
+    (candidate) => !candidates.some((other) => other !== candidate && candidate.contains(other)),
+  );
+
+  let best: HTMLElement | null = null;
+  let bestScore = -1;
+
+  for (const element of inner.length > 0 ? inner : candidates) {
+    const text = element.textContent ?? '';
+    const liCount = (text.match(LEGITIMATE_INTEREST_LABEL) ?? []).length;
+    const hasSliders = element.querySelectorAll(
+      '.fc-preference-slider, .fc-preference-legitimate-interest, input[type="checkbox"]',
+    ).length;
+    // Prefer more LI content and interactive sliders; smaller clientHeight wins ties
+    // (more specific panel).
+    const score = liCount * 10_000 + hasSliders * 100 - element.clientHeight;
     if (score > bestScore) {
       bestScore = score;
       best = element;
@@ -49,6 +90,8 @@ function ensureScrollContainer(root: Document | Element | ShadowRoot): HTMLEleme
     scrollContainer = findBestScrollContainer(root);
     scrollOffset = 0;
     reachedBottom = false;
+    lastSeenScrollHeight = 0;
+    stableBottomHits = 0;
   }
 
   return scrollContainer;
@@ -56,8 +99,8 @@ function ensureScrollContainer(root: Document | Element | ShadowRoot): HTMLEleme
 
 /**
  * Keep the tracked offset in sync with the real scroll position.
- * Toggle scrollIntoView can move the panel ahead of scrollOffset; without this
- * the next advance would jump backward and look like scrolling stopped.
+ * Never mark bottom solely from toggle scrollIntoView — content below the last
+ * LI toggle (Vendor preferences) must still be reachable.
  */
 export function syncScrollFromDom(root?: Document | Element | ShadowRoot): void {
   const container =
@@ -72,66 +115,93 @@ export function syncScrollFromDom(root?: Document | Element | ShadowRoot): void 
   }
 
   scrollOffset = Math.max(scrollOffset, container.scrollTop);
-
-  const maxScroll = Math.max(container.scrollHeight - container.clientHeight, 0);
-  if (container.scrollTop >= maxScroll - 2) {
-    reachedBottom = true;
-    scrollOffset = maxScroll + 1;
-  }
 }
 
 /**
  * Advance one step downward through the preferences panel.
  * Single pass only — never scrolls upward.
- * Returns true when the bottom has been reached.
+ * Returns true when the bottom has been reached and scrollHeight is stable.
  */
-export async function advanceScroll(root: Document | Element | ShadowRoot): Promise<boolean> {
+export function advanceScroll(root: Document | Element | ShadowRoot): boolean {
   if (reachedBottom) {
     return true;
   }
 
   const container = ensureScrollContainer(root);
   if (!container) {
-    reachedBottom = true;
-    return true;
+    return false;
   }
 
   syncScrollFromDom(root);
 
-  const step = Math.max(container.clientHeight * 0.4, 90);
+  const step = Math.max(container.clientHeight * 0.55, 120);
   const maxScroll = Math.max(container.scrollHeight - container.clientHeight, 0);
   const nextTop = Math.min(Math.max(scrollOffset, container.scrollTop) + step, maxScroll);
 
-  // Never move the panel upward.
   container.scrollTop = Math.max(container.scrollTop, nextTop);
   scrollOffset = container.scrollTop;
 
+  // Lazy/virtualized lists grow as you scroll — only finish when height stabilizes.
   if (container.scrollTop >= maxScroll - 2) {
-    reachedBottom = true;
-    scrollOffset = maxScroll + 1;
-    await wait(200);
-    return true;
+    if (container.scrollHeight <= lastSeenScrollHeight + 2) {
+      stableBottomHits += 1;
+    } else {
+      stableBottomHits = 0;
+      lastSeenScrollHeight = container.scrollHeight;
+      container.scrollTop = container.scrollHeight;
+      scrollOffset = container.scrollTop;
+      return false;
+    }
+
+    if (stableBottomHits >= 2) {
+      reachedBottom = true;
+      scrollOffset = maxScroll + 1;
+      return true;
+    }
+
+    lastSeenScrollHeight = container.scrollHeight;
+    return false;
   }
 
-  await wait(350);
+  lastSeenScrollHeight = Math.max(lastSeenScrollHeight, container.scrollHeight);
   return false;
 }
 
-/** Jump to the end of the preferences panel (never goes back up). */
-export async function scrollToBottom(root: Document | Element | ShadowRoot): Promise<void> {
+/** Jump to the end; may need repeat calls if content loads lazily. */
+export function scrollToBottom(root: Document | Element | ShadowRoot): void {
   const container = ensureScrollContainer(root);
   if (!container) {
-    reachedBottom = true;
+    return;
+  }
+
+  const previousHeight = container.scrollHeight;
+  container.scrollTop = Math.max(container.scrollTop, container.scrollHeight);
+  scrollOffset = container.scrollTop;
+
+  // If more content appeared, stay marked as not-finished.
+  if (container.scrollHeight > previousHeight + 8) {
+    reachedBottom = false;
+    stableBottomHits = 0;
+    lastSeenScrollHeight = container.scrollHeight;
+    container.scrollTop = container.scrollHeight;
+    scrollOffset = container.scrollTop;
     return;
   }
 
   const maxScroll = Math.max(container.scrollHeight - container.clientHeight, 0);
-  container.scrollTop = Math.max(container.scrollTop, maxScroll);
-  scrollOffset = maxScroll + 1;
-  reachedBottom = true;
-  await wait(350);
+  if (container.scrollTop >= maxScroll - 2) {
+    stableBottomHits += 1;
+    if (stableBottomHits >= 2) {
+      reachedBottom = true;
+      scrollOffset = maxScroll + 1;
+    }
+  }
 }
 
 export function hasReachedBottom(): boolean {
   return reachedBottom;
+}
+
+export function getScrollContainer(root: Document | Element | ShadowRoot): HTMLElement | null {
+  return ensureScrollContainer(root);
 }
