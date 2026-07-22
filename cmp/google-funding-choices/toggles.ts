@@ -6,8 +6,12 @@ import {
   LI_ROW_PATTERN,
   CONSENT_ROW_PATTERN,
 } from '@/cmp/google-funding-choices/constants';
-import { advanceScroll, syncScrollFromDom } from '@/cmp/google-funding-choices/scroll';
-import { isVisible, queryAllIncludingShadow, wait } from '@/utils/dom';
+import {
+  continueScrollingDown,
+  scrollToBottom,
+  syncScrollFromDom,
+} from '@/cmp/google-funding-choices/scroll';
+import { isVisible, queryAllIncludingShadow } from '@/utils/dom';
 
 const clickedLiToggles = new WeakSet<Element>();
 
@@ -395,8 +399,20 @@ export function collectOnLegitimateInterestToggles(
       );
 
     if (inVendorView) {
-      if (isConsentOnlyRow(rowText) || textMatchesConsentRow(rowText)) {
+      // Native GFC LI inputs are authoritative on the vendor list.
+      if (isGfcLegitimateInterestInput(toggle)) {
+        // keep going to isToggleOn check below
+      } else if (isConsentOnlyRow(rowText)) {
         return;
+      } else if (
+        !LEGITIMATE_INTEREST_LABEL.test(rowText) &&
+        !LI_ROW_PATTERN.test(rowText)
+      ) {
+        // Vendor rows are often just a vendor name + two sliders; accept any
+        // non-consent checked control in an LI preference container.
+        if (!toggle.closest('.fc-legitimate-interest-preference-container')) {
+          return;
+        }
       }
     } else if (
       !isGfcLegitimateInterestInput(toggle) &&
@@ -418,18 +434,29 @@ export function collectOnLegitimateInterestToggles(
     addToggle(toggle);
   }
 
-  if (!inVendorView) {
-    for (const card of findPurposeCards(root)) {
-      addToggle(findLiToggleInCard(card, root));
+  // Vendor list: stick to native GFC LI inputs only — walking every span/div
+  // on a 50+ vendor panel is what made Confirm feel multi-second delayed.
+  if (inVendorView) {
+    for (const toggle of queryAllIncludingShadow(
+      root,
+      'input[type="checkbox"].fc-preference-legitimate-interest, .fc-legitimate-interest-preference-container input[type="checkbox"]',
+    )) {
+      addToggle(toggle);
     }
 
-    for (const label of queryAllIncludingShadow(root, 'span, div, label, p, li')) {
-      if (!isLiLabelElement(label)) {
-        continue;
-      }
+    return toggles;
+  }
 
-      addToggle(findToggleNearLabel(label, root));
+  for (const card of findPurposeCards(root)) {
+    addToggle(findLiToggleInCard(card, root));
+  }
+
+  for (const label of queryAllIncludingShadow(root, 'span, div, label, p, li')) {
+    if (!isLiLabelElement(label)) {
+      continue;
     }
+
+    addToggle(findToggleNearLabel(label, root));
   }
 
   for (const toggle of queryAllIncludingShadow(root, FALLBACK_TOGGLE_SELECTOR)) {
@@ -498,14 +525,20 @@ function getGfcToggleClickTarget(toggle: HTMLElement): HTMLElement {
   return toggle;
 }
 
-function clickGfcToggle(toggle: Element): boolean {
+function clickGfcToggle(toggle: Element, scrollIntoView = true): boolean {
   if (!(toggle instanceof HTMLElement)) {
     return false;
   }
 
+  if (!document.contains(toggle)) {
+    return false;
+  }
+
   const clickTarget = getGfcToggleClickTarget(toggle);
-  clickTarget.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-  syncScrollFromDom();
+  if (scrollIntoView) {
+    clickTarget.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    syncScrollFromDom();
+  }
 
   // Click the visible slider/label once. Clicking both label and input
   // toggles twice and leaves the control ON.
@@ -520,7 +553,6 @@ function clickGfcToggle(toggle: Element): boolean {
     toggle.setAttribute('aria-checked', 'false');
   }
 
-  syncScrollFromDom();
   return true;
 }
 
@@ -542,37 +574,54 @@ export function hasVisibleLiLabels(root: Document | Element | ShadowRoot): boole
   return false;
 }
 
-/** Scroll to and uncheck the next ON legitimate-interest toggle. */
-export async function disableNextLegitimateInterestToggle(
+/**
+ * Snapshot every currently ON legitimate-interest toggle in the dialog.
+ * Vendor lists: one jump to bottom (no multi-step scroll) then collect.
+ */
+export function snapshotOnLegitimateInterestToggles(
   root: Document | Element | ShadowRoot,
   inVendorView: boolean,
-): Promise<number> {
-  let toggles = collectOnLegitimateInterestToggles(root, inVendorView);
-
-  if (toggles.length === 0) {
-    await advanceScroll(root);
-    toggles = collectOnLegitimateInterestToggles(root, inVendorView);
+): Element[] {
+  if (inVendorView) {
+    continueScrollingDown();
+    scrollToBottom(root);
   }
 
-  const toggle = toggles[0];
-  if (!toggle || !clickGfcToggle(toggle)) {
+  return collectOnLegitimateInterestToggles(root, inVendorView);
+}
+
+/**
+ * Parse the preferences panel for prechecked LI toggles, then uncheck every
+ * entry in one go (no per-toggle re-query / batching / delays).
+ */
+export function disableLegitimateInterestToggles(
+  root: Document | Element | ShadowRoot,
+  inVendorView: boolean,
+): number {
+  const toggles = snapshotOnLegitimateInterestToggles(root, inVendorView);
+  if (toggles.length === 0) {
     return 0;
+  }
+
+  let disabled = 0;
+
+  for (const toggle of toggles) {
+    if (clickedLiToggles.has(toggle) || !document.contains(toggle)) {
+      continue;
+    }
+
+    if (!clickGfcToggle(toggle, false)) {
+      continue;
+    }
+
+    if (toggle instanceof HTMLInputElement && toggle.checked) {
+      forceUncheckInput(toggle);
+    }
+
+    clickedLiToggles.add(toggle);
+    disabled += 1;
   }
 
   syncScrollFromDom(root);
-  await wait(250);
-
-  if (toggle instanceof HTMLInputElement && toggle.checked) {
-    forceUncheckInput(toggle);
-    await wait(100);
-  }
-
-  const labelText = getToggleLabelText(toggle, root);
-  if (isToggleOn(toggle, labelText)) {
-    clickedLiToggles.add(toggle);
-    return 0;
-  }
-
-  clickedLiToggles.add(toggle);
-  return 1;
+  return disabled;
 }
