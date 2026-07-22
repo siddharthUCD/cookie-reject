@@ -4,9 +4,11 @@ import { getSettings, SETTINGS_KEY, type Settings } from '@/utils/storage';
 import { getStorageApi } from '@/utils/extension-api';
 
 const SCAN_DEBOUNCE_MS = 250;
+const SCAN_DEBOUNCE_GFC_MS = 0;
 const MAX_ATTEMPTS = 40;
-const MAX_ATTEMPTS_GFC = 150;
+const MAX_ATTEMPTS_GFC = 200;
 const RETRY_INTERVAL_MS = 1000;
+const RETRY_INTERVAL_GFC_MS = 16;
 
 let scanTimer: number | undefined;
 let attempts = 0;
@@ -14,18 +16,38 @@ let observer: MutationObserver | undefined;
 let retryTimer: number | undefined;
 let running = false;
 let active = false;
+let settingsEnabled = true;
+
+function currentDebounceMs(): number {
+  return isGfcFlowActive() ? SCAN_DEBOUNCE_GFC_MS : SCAN_DEBOUNCE_MS;
+}
+
+function currentRetryMs(): number {
+  return isGfcFlowActive() ? RETRY_INTERVAL_GFC_MS : RETRY_INTERVAL_MS;
+}
+
+function currentMaxAttempts(): number {
+  return isGfcFlowActive() ? MAX_ATTEMPTS_GFC : MAX_ATTEMPTS;
+}
 
 async function scan(reason: string): Promise<void> {
   if (running) {
     return;
   }
 
-  const settings = await getSettings();
-  if (!settings.enabled) {
+  // Skip storage round-trips while GFC is mid-flow — they added visible lag
+  // before Confirm choices.
+  if (!isGfcFlowActive()) {
+    const settings = await getSettings();
+    settingsEnabled = settings.enabled;
+    if (!settingsEnabled) {
+      return;
+    }
+  } else if (!settingsEnabled) {
     return;
   }
 
-  if (attempts >= (isGfcFlowActive() ? MAX_ATTEMPTS_GFC : MAX_ATTEMPTS)) {
+  if (attempts >= currentMaxAttempts()) {
     stopScanning();
     return;
   }
@@ -37,6 +59,10 @@ async function scan(reason: string): Promise<void> {
     const result = await runHandlers(document);
     if (result.handled) {
       console.info('[Cookie Reject] Dismissed banner:', result.action, reason);
+      // Chain the next GFC step immediately so long vendor lists don't wait on the retry timer.
+      if (isGfcFlowActive()) {
+        scheduleScan('gfc-continue');
+      }
     }
   } finally {
     running = false;
@@ -54,7 +80,7 @@ function scheduleScan(reason: string): void {
 
   scanTimer = window.setTimeout(() => {
     void scan(reason);
-  }, SCAN_DEBOUNCE_MS);
+  }, currentDebounceMs());
 }
 
 function startObserver(): void {
@@ -85,13 +111,34 @@ function stopScanning(): void {
   observer = undefined;
 
   if (retryTimer) {
-    window.clearInterval(retryTimer);
+    window.clearTimeout(retryTimer);
     retryTimer = undefined;
   }
 }
 
+function scheduleRetryLoop(): void {
+  if (!active) {
+    return;
+  }
+
+  retryTimer = window.setTimeout(() => {
+    if (!active) {
+      return;
+    }
+
+    if (attempts >= currentMaxAttempts()) {
+      stopScanning();
+      return;
+    }
+
+    void scan('retry');
+    scheduleRetryLoop();
+  }, currentRetryMs());
+}
+
 async function startScanning(reason: string): Promise<void> {
   const settings = await getSettings();
+  settingsEnabled = settings.enabled;
   if (!settings.enabled) {
     stopScanning();
     return;
@@ -101,17 +148,12 @@ async function startScanning(reason: string): Promise<void> {
   attempts = 0;
   startObserver();
 
-  if (!retryTimer) {
-    retryTimer = window.setInterval(() => {
-      if (attempts >= (isGfcFlowActive() ? MAX_ATTEMPTS_GFC : MAX_ATTEMPTS)) {
-        stopScanning();
-        return;
-      }
-
-      void scan('retry');
-    }, RETRY_INTERVAL_MS);
+  if (retryTimer) {
+    window.clearTimeout(retryTimer);
+    retryTimer = undefined;
   }
 
+  scheduleRetryLoop();
   await scan(reason);
 }
 
@@ -126,10 +168,12 @@ export async function startCookieRejector(): Promise<void> {
     const nextSettings = changes[SETTINGS_KEY].newValue as Settings | undefined;
 
     if (nextSettings?.enabled) {
+      settingsEnabled = true;
       void startScanning('enabled');
       return;
     }
 
+    settingsEnabled = false;
     stopScanning();
   });
 }
