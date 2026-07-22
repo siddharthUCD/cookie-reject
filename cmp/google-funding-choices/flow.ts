@@ -1,10 +1,7 @@
 import type { HandlerResult } from '@/cmp/types';
 import {
   GFC_BUTTON_SELECTORS,
-  GFC_VENDOR_LINK_SELECTORS,
   MANAGE_OPTIONS_PATTERNS,
-  TEXT_SELECTORS,
-  VENDOR_PREFERENCES_PATTERNS,
 } from '@/cmp/google-funding-choices/constants';
 import {
   isDataPreferencesView,
@@ -15,29 +12,31 @@ import {
 } from '@/cmp/google-funding-choices/detect';
 import {
   advanceScroll,
-  hasReachedBottom,
+  continueScrollingDown,
   resetScrollState,
   scrollToBottom,
-  syncScrollFromDom,
 } from '@/cmp/google-funding-choices/scroll';
 import {
-  collectOnLegitimateInterestToggles,
-  disableNextLegitimateInterestToggle,
+  disableLegitimateInterestToggles,
+  hasVisibleLiLabels,
   resetToggleState,
 } from '@/cmp/google-funding-choices/toggles';
 import {
   findByTextPatterns,
-  getElementTextVariants,
   isVisible,
   queryAllIncludingShadow,
-  wait,
 } from '@/utils/dom';
 import { SAVE_CHOICES_PATTERNS } from '@/utils/patterns';
+
+const VENDOR_LINK_TEXT = /^vendor\s*preferences?$/i;
 
 let manageOptionsClicked = false;
 let vendorPreferencesOpened = false;
 let dataPrefsLiComplete = false;
 let vendorLinkAttempts = 0;
+let vendorPhaseAttempts = 0;
+let vendorSawLiToggles = false;
+let locationAtFlowStart = '';
 
 export function isGfcFlowActive(): boolean {
   return manageOptionsClicked || vendorPreferencesOpened;
@@ -48,26 +47,58 @@ function resetGfcState(): void {
   vendorPreferencesOpened = false;
   dataPrefsLiComplete = false;
   vendorLinkAttempts = 0;
+  vendorPhaseAttempts = 0;
+  vendorSawLiToggles = false;
+  locationAtFlowStart = '';
   resetScrollState();
   resetToggleState();
 }
 
-function isExternalNavigationLink(element: Element): boolean {
-  if (!(element instanceof HTMLAnchorElement)) {
-    return false;
+function beginVendorPhase(): void {
+  vendorPreferencesOpened = true;
+  vendorLinkAttempts = 0;
+  vendorPhaseAttempts = 0;
+  vendorSawLiToggles = false;
+  resetScrollState();
+}
+
+function normalizeRaw(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+function locationLeftSite(): boolean {
+  const href = window.location.href;
+  if (href.startsWith('about:') || href.startsWith('chrome:') || href.startsWith('chrome-error:')) {
+    return true;
   }
 
-  const href = (element.getAttribute('href') ?? '').trim();
-  if (!href || href === '#' || href.startsWith('javascript:')) {
-    return false;
+  if (locationAtFlowStart && href !== locationAtFlowStart) {
+    // Path change away from the article is a failed navigation gesture.
+    try {
+      const start = new URL(locationAtFlowStart);
+      const now = new URL(href);
+      if (start.origin !== now.origin) {
+        return true;
+      }
+    } catch {
+      return true;
+    }
   }
 
-  try {
-    const url = new URL(href, window.location.href);
-    return url.origin !== window.location.origin || url.pathname !== window.location.pathname;
-  } catch {
-    return false;
-  }
+  return false;
+}
+
+function isInsideGfcDialog(element: Element): boolean {
+  return !!element.closest(
+    [
+      '.fc-dialog',
+      '.fc-consent-root',
+      '[class*="fc-dialog"]',
+      '[class*="fc-consent"]',
+      '[aria-modal="true"]',
+      '[role="dialog"]',
+    ].join(', '),
+  );
 }
 
 function clickGfcControl(
@@ -79,16 +110,19 @@ function clickGfcControl(
     lenient: true,
   });
 
-  if (!element || isExternalNavigationLink(element)) {
+  if (!element || !(element instanceof HTMLElement)) {
     return false;
   }
 
-  if (!(element instanceof HTMLElement)) {
-    return false;
+  // Never activate navigable anchors for any GFC control.
+  if (element instanceof HTMLAnchorElement) {
+    const href = (element.getAttribute('href') ?? '').trim();
+    if (href && href !== '#' && !href.startsWith('#') && !href.toLowerCase().startsWith('javascript:')) {
+      return false;
+    }
   }
 
-  element.scrollIntoView({ block: 'center', inline: 'nearest' });
-  element.click();
+  activateInDialog(element);
   return true;
 }
 
@@ -99,16 +133,51 @@ function clickGfcButton(
   return clickGfcControl(root, patterns, GFC_BUTTON_SELECTORS);
 }
 
+function elementLooksLikeVendorLink(element: Element): boolean {
+  const raw = normalizeRaw(element.textContent ?? '');
+  if (!VENDOR_LINK_TEXT.test(raw) || raw.length > 40) {
+    return false;
+  }
+
+  if (/legitimate interest|consent\s*\(/i.test(raw)) {
+    return false;
+  }
+
+  return true;
+}
+
 /**
- * Find the in-dialog "Vendor preferences" link.
- * Prefer the shortest leaf that exactly matches, so we don't click a huge parent.
+ * Locate the bottom-of-list "Vendor preferences" control inside the FC dialog.
  */
 function findVendorPreferencesLink(
   root: Document | Element | ShadowRoot,
 ): HTMLElement | null {
   const candidates: HTMLElement[] = [];
 
-  for (const element of queryAllIncludingShadow(root, GFC_VENDOR_LINK_SELECTORS)) {
+  const searchRoot: Node =
+    root instanceof Document || root instanceof ShadowRoot ? root : root;
+
+  const walker = document.createTreeWalker(searchRoot, NodeFilter.SHOW_TEXT);
+  let node = walker.nextNode();
+  while (node) {
+    const value = normalizeRaw(node.textContent ?? '');
+    if (VENDOR_LINK_TEXT.test(value)) {
+      const parent = node.parentElement;
+      if (
+        parent instanceof HTMLElement &&
+        elementLooksLikeVendorLink(parent) &&
+        isInsideGfcDialog(parent)
+      ) {
+        candidates.push(parent);
+      }
+    }
+    node = walker.nextNode();
+  }
+
+  for (const element of queryAllIncludingShadow(
+    root,
+    'button, [role="button"], [role="link"], span, div, p, li',
+  )) {
     if (!(element instanceof HTMLElement)) {
       continue;
     }
@@ -117,64 +186,119 @@ function findVendorPreferencesLink(
       continue;
     }
 
-    if (isExternalNavigationLink(element)) {
+    if (!isInsideGfcDialog(element) || !elementLooksLikeVendorLink(element)) {
       continue;
     }
 
-    const texts = getElementTextVariants(element);
-    const exact = texts.some((text) =>
-      VENDOR_PREFERENCES_PATTERNS.some((pattern) => pattern.test(text)),
-    );
-    if (!exact) {
-      continue;
-    }
-
-    // Skip large containers that merely contain the link text among other copy.
-    const raw = (element.textContent ?? '').replace(/\s+/g, ' ').trim();
-    if (raw.length > 60) {
-      continue;
-    }
-
+    // Prefer non-anchor nodes; anchors are last resort and clicked with nav blocked.
     candidates.push(element);
   }
 
   if (candidates.length === 0) {
-    // Fallback: any text node match via findByTextPatterns.
-    const fallback = findByTextPatterns(root, VENDOR_PREFERENCES_PATTERNS, TEXT_SELECTORS, {
-      lenient: true,
-    });
-    return fallback instanceof HTMLElement && !isExternalNavigationLink(fallback)
-      ? fallback
-      : null;
+    return null;
   }
 
-  candidates.sort((a, b) => {
-    const aLen = (a.textContent ?? '').length;
-    const bLen = (b.textContent ?? '').length;
-    return aLen - bLen;
+  const unique = [...new Set(candidates)];
+  unique.sort((a, b) => {
+    const aAnchor = a.closest('a') ? 1 : 0;
+    const bAnchor = b.closest('a') ? 1 : 0;
+    if (aAnchor !== bAnchor) {
+      return aAnchor - bAnchor;
+    }
+
+    const aButton = a.closest('button, [role="button"]') ? 0 : 1;
+    const bButton = b.closest('button, [role="button"]') ? 0 : 1;
+    if (aButton !== bButton) {
+      return aButton - bButton;
+    }
+
+    return normalizeRaw(a.textContent ?? '').length - normalizeRaw(b.textContent ?? '').length;
   });
 
-  return candidates[0] ?? null;
+  return unique[0] ?? null;
 }
 
-function clickVendorPreferences(root: Document | Element | ShadowRoot): boolean {
+function pageMentionsVendorPreferences(root: Document | Element | ShadowRoot): boolean {
+  return !!findVendorPreferencesLink(root);
+}
+
+/**
+ * Fire in-dialog activation while blocking any anchor navigation default
+ * (this was sending the tab to about:blank).
+ */
+function activateInDialog(element: HTMLElement): void {
+  element.scrollIntoView({ block: 'center', inline: 'nearest' });
+
+  const blockAnchorNavigation = (event: Event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) {
+      return;
+    }
+
+    const anchor = target.closest('a');
+    if (!(anchor instanceof HTMLAnchorElement)) {
+      return;
+    }
+
+    // Always cancel navigation defaults during our synthetic gesture.
+    event.preventDefault();
+  };
+
+  document.addEventListener('click', blockAnchorNavigation, true);
+  document.addEventListener('auxclick', blockAnchorNavigation, true);
+
+  try {
+    const button = element.closest('button, [role="button"]');
+    const target =
+      button instanceof HTMLElement && isInsideGfcDialog(button) ? button : element;
+
+    // Never call HTMLAnchorElement.click() — it follows href even when we
+    // try to preventDefault in some browser paths.
+    if (target instanceof HTMLAnchorElement) {
+      for (const type of ['pointerdown', 'mousedown', 'mouseup', 'pointerup', 'click'] as const) {
+        target.dispatchEvent(
+          new MouseEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            view: window,
+          }),
+        );
+      }
+    } else {
+      for (const type of ['pointerdown', 'mousedown', 'mouseup', 'pointerup', 'click'] as const) {
+        target.dispatchEvent(
+          new MouseEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            view: window,
+          }),
+        );
+      }
+      target.click();
+    }
+  } finally {
+    document.removeEventListener('click', blockAnchorNavigation, true);
+    document.removeEventListener('auxclick', blockAnchorNavigation, true);
+  }
+}
+
+function openVendorPreferences(root: Document | Element | ShadowRoot): boolean {
   const element = findVendorPreferencesLink(root);
   if (!element) {
     return false;
   }
 
-  element.scrollIntoView({ block: 'center', inline: 'nearest' });
-  syncScrollFromDom(root);
+  const hrefBefore = window.location.href;
+  activateInDialog(element);
 
-  // Prefer clicking the element itself; if nested, also try a parent link/button.
-  element.click();
-
-  const clickable = element.closest('a, button, [role="button"], [role="link"]');
-  if (clickable instanceof HTMLElement && clickable !== element) {
-    clickable.click();
+  if (locationLeftSite() || window.location.href !== hrefBefore) {
+    console.warn('[Cookie Reject] Blocked vendor-preferences navigation to', window.location.href);
+    return false;
   }
 
-  return true;
+  // Strict success: must be on the Vendor preferences panel, not merely
+  // "Data preferences disappeared" (that also happens on about:blank).
+  return isVendorPreferencesView(root);
 }
 
 function clickConfirmChoices(root: Document | Element | ShadowRoot): boolean {
@@ -182,15 +306,54 @@ function clickConfirmChoices(root: Document | Element | ShadowRoot): boolean {
     return true;
   }
 
-  return clickGfcControl(root, SAVE_CHOICES_PATTERNS, GFC_VENDOR_LINK_SELECTORS);
+  // Broader fallback: GFC sometimes puts Confirm on a footer control that is
+  // not matched by the primary button selector set alone.
+  const confirmSelectors = [
+    GFC_BUTTON_SELECTORS,
+    '.fc-footer-buttons-wrapper button',
+    '.fc-footer button',
+    '[class*="fc-cta" i]',
+    '[class*="confirm" i]',
+    'button',
+    '[role="button"]',
+  ].join(', ');
+
+  if (clickGfcControl(root, SAVE_CHOICES_PATTERNS, confirmSelectors)) {
+    return true;
+  }
+
+  // Last resort: walk text nodes for an exact "Confirm choices" label.
+  const walker = document.createTreeWalker(
+    root instanceof Document || root instanceof ShadowRoot ? root : root,
+    NodeFilter.SHOW_TEXT,
+  );
+
+  let node = walker.nextNode();
+  while (node) {
+    const value = normalizeRaw(node.textContent ?? '');
+    if (SAVE_CHOICES_PATTERNS.some((pattern) => pattern.test(value))) {
+      const parent = node.parentElement;
+      if (parent instanceof HTMLElement && isInsideGfcDialog(parent)) {
+        const clickable =
+          parent.closest('button, [role="button"], .fc-button, a') ?? parent;
+        if (clickable instanceof HTMLElement) {
+          activateInDialog(clickable);
+          return true;
+        }
+      }
+    }
+    node = walker.nextNode();
+  }
+
+  return false;
 }
 
 /**
  * Dedicated handler for Google Funding Choices / Privacy & Messaging
  * (sites like bosshunting.com.au). Isolated from the generic consent flow.
  *
- * Single top→bottom pass per panel. Never scrolls back to the top.
- * If Vendor preferences is missing at the end, Confirm choices closes the modal.
+ * After LI toggles are off, keep scrolling until Vendor preferences opens.
+ * Confirm choices is never used on Data preferences while that link exists.
  */
 export async function tryGoogleFundingChoices(
   root: Document | Element | ShadowRoot = document,
@@ -203,11 +366,11 @@ export async function tryGoogleFundingChoices(
   if (isWelcomeScreen(root, manageOptionsClicked)) {
     if (clickGfcButton(root, MANAGE_OPTIONS_PATTERNS)) {
       manageOptionsClicked = true;
+      locationAtFlowStart = window.location.href;
       resetScrollState();
       dataPrefsLiComplete = false;
       vendorPreferencesOpened = false;
       vendorLinkAttempts = 0;
-      await wait(400);
       return { handled: true, action: 'gfc-manage-options' };
     }
 
@@ -220,56 +383,47 @@ export async function tryGoogleFundingChoices(
 
   const inVendorView = isVendorPreferencesView(root);
 
-  // --- Phase 1: Data preferences — one downward pass, uncheck ON LI toggles ---
+  // --- Phase 1: Data preferences — snapshot all ON LI toggles, uncheck in one go ---
   if (isDataPreferencesView(root) && !dataPrefsLiComplete) {
-    const remaining = collectOnLegitimateInterestToggles(root, false);
-    if (remaining.length > 0) {
-      const disabled = await disableNextLegitimateInterestToggle(root, false);
-      if (disabled > 0) {
-        if (collectOnLegitimateInterestToggles(root, false).length === 0) {
-          await scrollToBottom(root);
-          dataPrefsLiComplete = true;
-        } else {
-          return { handled: true, action: 'gfc-li-disabled' };
-        }
-      } else {
-        await advanceScroll(root);
-        return { handled: true, action: 'gfc-scanning-li' };
-      }
-    } else if (!hasReachedBottom()) {
-      const scrollDone = await advanceScroll(root);
-      if (!scrollDone) {
-        return { handled: true, action: 'gfc-scanning-li' };
-      }
+    const disabled = disableLegitimateInterestToggles(root, false);
+    if (disabled > 0) {
       dataPrefsLiComplete = true;
-    } else {
-      dataPrefsLiComplete = true;
+      continueScrollingDown();
+      return { handled: true, action: 'gfc-li-disabled' };
     }
+
+    // Panel may still be mounting — retry on the next scan if LI UI is visible.
+    if (hasVisibleLiLabels(root)) {
+      return { handled: true, action: 'gfc-scanning-li' };
+    }
+
+    dataPrefsLiComplete = true;
+    continueScrollingDown();
   }
 
-  // --- Phase 2: Open Vendor preferences (must happen before Confirm) ---
+  // --- Phase 2: Scroll to and open Vendor preferences (never Confirm while link exists) ---
   if (isDataPreferencesView(root) && dataPrefsLiComplete && !vendorPreferencesOpened) {
-    await scrollToBottom(root);
-    await wait(200);
-
-    if (clickVendorPreferences(root)) {
-      vendorPreferencesOpened = true;
-      vendorLinkAttempts = 0;
-      resetScrollState();
-      await wait(500);
+    if (openVendorPreferences(root)) {
+      beginVendorPhase();
       return { handled: true, action: 'gfc-vendor-preferences' };
     }
 
     vendorLinkAttempts += 1;
+    continueScrollingDown();
+    const atBottom = advanceScroll(root);
+    scrollToBottom(root);
 
-    // Give the bottom of the list a few tries before falling back to Confirm.
-    // The Vendor preferences link is often rendered just below the last purpose.
-    if (vendorLinkAttempts < 5) {
-      await scrollToBottom(root);
+    if (openVendorPreferences(root)) {
+      beginVendorPhase();
+      return { handled: true, action: 'gfc-vendor-preferences' };
+    }
+
+    // Keep hunting whenever the Vendor preferences link/text is present.
+    if (pageMentionsVendorPreferences(root) || !atBottom || vendorLinkAttempts < 25) {
       return { handled: true, action: 'gfc-scanning-vendor-link' };
     }
 
-    // No Vendor preferences link after retries — least-exploitative exit.
+    // Only Confirm on Data preferences when Vendor preferences truly is not offered.
     if (clickConfirmChoices(root)) {
       resetGfcState();
       return { handled: true, action: 'gfc-confirm-choices' };
@@ -278,32 +432,41 @@ export async function tryGoogleFundingChoices(
     return { handled: true, action: 'gfc-waiting-confirm' };
   }
 
-  // --- Phase 3: Vendor preferences — same single-pass unselect, then Confirm ---
+  // --- Phase 3: Vendor preferences — unselect LI, then Confirm ---
   if (vendorPreferencesOpened || inVendorView) {
+    // Still on Data preferences means the vendor click did not navigate — recover.
+    // Once we have already processed vendor LI, never abandon Confirm for a
+    // back-link false positive ("Data preferences" text on the vendor panel).
+    if (
+      isDataPreferencesView(root) &&
+      !inVendorView &&
+      !vendorSawLiToggles &&
+      vendorPhaseAttempts < 3
+    ) {
+      vendorPreferencesOpened = false;
+      continueScrollingDown();
+      return { handled: true, action: 'gfc-scanning-vendor-link' };
+    }
+
     if (!vendorPreferencesOpened) {
-      vendorPreferencesOpened = true;
+      beginVendorPhase();
     }
 
-    const remaining = collectOnLegitimateInterestToggles(root, true);
-    if (remaining.length > 0) {
-      const disabled = await disableNextLegitimateInterestToggle(root, true);
+    vendorPhaseAttempts += 1;
+
+    if (!vendorSawLiToggles) {
+      const disabled = disableLegitimateInterestToggles(root, true);
       if (disabled > 0) {
-        return { handled: true, action: 'gfc-vendor-li-disabled' };
-      }
-
-      await advanceScroll(root);
-      return { handled: true, action: 'gfc-scanning-vendor-li' };
-    }
-
-    if (!hasReachedBottom()) {
-      const scrollDone = await advanceScroll(root);
-      if (!scrollDone) {
+        vendorSawLiToggles = true;
+      } else if (vendorPhaseAttempts < 2) {
+        // One short remount retry only — then Confirm immediately.
         return { handled: true, action: 'gfc-scanning-vendor-li' };
+      } else {
+        vendorSawLiToggles = true;
       }
     }
 
-    await scrollToBottom(root);
-
+    // Confirm as soon as vendor LI are done — no second full-panel scan.
     if (clickConfirmChoices(root)) {
       resetGfcState();
       return { handled: true, action: 'gfc-confirm-choices' };
