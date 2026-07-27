@@ -58,7 +58,7 @@ async function scan(reason: string): Promise<void> {
   try {
     const result = await runHandlers(document);
     if (result.handled) {
-      console.info('[Cookie Reject] Dismissed banner:', result.action, reason);
+      console.info('[Cookie Monster] Dismissed banner:', result.action, reason);
       // Chain the next GFC step immediately so long vendor lists don't wait on the retry timer.
       if (isGfcFlowActive()) {
         scheduleScan('gfc-continue');

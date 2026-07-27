@@ -292,7 +292,7 @@ function openVendorPreferences(root: Document | Element | ShadowRoot): boolean {
   activateInDialog(element);
 
   if (locationLeftSite() || window.location.href !== hrefBefore) {
-    console.warn('[Cookie Reject] Blocked vendor-preferences navigation to', window.location.href);
+    console.warn('[Cookie Monster] Blocked vendor-preferences navigation to', window.location.href);
     return false;
   }
 

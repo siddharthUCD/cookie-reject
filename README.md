@@ -1,4 +1,4 @@
-# Cookie Reject
+# Cookie Monster
 
 Browser extension that automatically rejects optional cookies and legitimate interest options on European consent popups.
 

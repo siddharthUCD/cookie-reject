@@ -41,7 +41,7 @@ function getExtensionApi(): ExtensionApi {
   }
 
   throw new Error(
-    'Extension APIs are unavailable. Open the popup from the Cookie Reject toolbar icon, not localhost:3000.',
+    'Extension APIs are unavailable. Open the popup from the Cookie Monster toolbar icon, not localhost:3000.',
   );
 }
 

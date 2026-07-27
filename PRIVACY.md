@@ -1,8 +1,8 @@
-# Privacy Policy for Cookie Reject
+# Privacy Policy for Cookie Monster
 
 **Last updated:** 27 July 2026
 
-Cookie Reject (“the Extension”) is a browser extension that helps dismiss optional cookie consent banners and related preference controls on websites you visit.
+Cookie Monster (“the Extension”) is a browser extension that helps dismiss optional cookie consent banners and related preference controls on websites you visit.
 
 ## Data we collect
 
@@ -23,7 +23,7 @@ This setting never leaves your browser unless you back up or sync your browser p
 
 ## Contact
 
-For privacy questions about Cookie Reject, open an issue on the project repository:  
+For privacy questions about Cookie Monster, open an issue on the project repository:  
 https://github.com/siddharthUCD/cookie-reject
 
 ## Changes

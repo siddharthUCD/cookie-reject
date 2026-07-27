@@ -6,7 +6,7 @@ const app = document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML = `
   <main class="popup">
     <header class="popup__header">
-      <h1>Cookie Reject</h1>
+      <h1>Cookie Monster</h1>
       <p>Reject optional cookies and legitimate interest on EU consent popups.</p>
     </header>
 
@@ -39,7 +39,7 @@ async function loadSettings(): Promise<void> {
     toggle.disabled = false;
     status.textContent = '';
   } catch (error) {
-    console.error('[Cookie Reject] Failed to load settings:', error);
+    console.error('[Cookie Monster] Failed to load settings:', error);
     toggle.disabled = true;
     status.textContent =
       'Could not load settings. Open the popup from the extension toolbar icon, then reload the extension if needed.';
@@ -55,7 +55,7 @@ toggle.addEventListener('change', () => {
       status.textContent = '';
     })
     .catch((error) => {
-      console.error('[Cookie Reject] Failed to save settings:', error);
+      console.error('[Cookie Monster] Failed to save settings:', error);
       toggle.checked = !enabled;
       status.textContent = 'Failed to save settings. Try again.';
     });
