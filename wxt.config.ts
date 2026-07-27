@@ -5,7 +5,7 @@ export default defineConfig({
     name: 'Cookie Reject',
     description:
       'Automatically rejects optional cookies and legitimate interest options on EU consent popups.',
-    version: '0.1.0',
+    version: '0.2.1',
     permissions: ['storage'],
     host_permissions: ['<all_urls>'],
     browser_specific_settings: {

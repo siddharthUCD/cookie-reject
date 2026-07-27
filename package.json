@@ -2,7 +2,7 @@
   "name": "cookie-reject",
   "description": "Automatically reject optional cookies and legitimate interest on EU consent popups",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.1",
   "type": "module",
   "scripts": {
     "dev": "wxt",
