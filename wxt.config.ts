@@ -5,9 +5,9 @@ export default defineConfig({
     name: 'Cookie Monster',
     description:
       'Automatically rejects optional cookies and legitimate interest options on EU consent popups.',
-    version: '0.2.2',
-    permissions: ['storage'],
-    host_permissions: ['<all_urls>'],
+    version: '0.2.4',
+    permissions: ['storage', 'activeTab'],
+    host_permissions: ['<all_urls>', 'https://formspree.io/*'],
     browser_specific_settings: {
       gecko: {
         id: 'cookie-monster@example.com',

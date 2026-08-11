@@ -2,7 +2,7 @@
   "name": "cookie-monster",
   "description": "Automatically reject optional cookies and legitimate interest on EU consent popups",
   "private": true,
-  "version": "0.2.2",
+  "version": "0.2.4",
   "type": "module",
   "scripts": {
     "dev": "wxt",
