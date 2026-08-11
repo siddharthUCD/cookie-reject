@@ -13,7 +13,17 @@ When you visit a site with a GDPR cookie banner, the extension tries to:
 3. Disable **legitimate interest** toggles when a site opens a preferences panel
 4. Save your choices when a banner requires confirmation
 
-Use the toolbar popup to turn auto-reject on or off.
+Use the toolbar popup to turn auto-reject on or off, or to **report a site** when a banner is not dismissed.
+
+## Banner reports (Formspree)
+
+One-click reports from the popup go to Formspree (no GitHub login). Set this before building a release:
+
+1. Create a form at [formspree.io](https://formspree.io)
+2. Copy `.env.example` to `.env` and set `VITE_BANNER_REPORT_ENDPOINT=https://formspree.io/f/yourFormId`
+3. Run `npm run zip` (or `wxt zip`) so the endpoint is baked into the package
+
+**Prefer GitHub?** in the popup still opens a pre-filled issue for contributors.
 
 ## Development
 
