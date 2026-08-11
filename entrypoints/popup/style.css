@@ -103,3 +103,112 @@ body {
 .info li + li {
   margin-top: 0.35rem;
 }
+
+.report {
+  margin-bottom: 1.1rem;
+  padding: 0.75rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.625rem;
+  background: #f9fafb;
+}
+
+.report h2 {
+  margin: 0 0 0.35rem;
+  font-size: 0.8125rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6b7280;
+}
+
+.report__hint {
+  margin: 0 0 0.65rem;
+  color: #4b5563;
+  font-size: 0.75rem;
+}
+
+.report__notes-label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #374151;
+}
+
+.report__notes {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 0.65rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.5rem;
+  resize: vertical;
+  font: inherit;
+  font-size: 0.8125rem;
+  color: #1a1a1a;
+  background: #ffffff;
+}
+
+.report__notes:focus {
+  outline: 2px solid #059669;
+  outline-offset: 1px;
+}
+
+.report__button {
+  width: 100%;
+  padding: 0.55rem 0.75rem;
+  border: none;
+  border-radius: 0.5rem;
+  background: #111827;
+  color: #ffffff;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.report__button:hover:not(:disabled) {
+  background: #1f2937;
+}
+
+.report__button:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.report__secondary {
+  margin: 0.55rem 0 0;
+  text-align: center;
+}
+
+.report__link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: #047857;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.report__link:hover:not(:disabled) {
+  color: #065f46;
+}
+
+.report__link:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.report__status {
+  margin: 0.5rem 0 0;
+  min-height: 1rem;
+  color: #047857;
+  font-size: 0.75rem;
+}
+
+.report__status--error {
+  color: #b45309;
+}
